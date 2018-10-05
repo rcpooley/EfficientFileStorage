@@ -149,4 +149,41 @@ public class TestEfficientStorage {
         Assert.assertEquals("WHAT", acs.b[0].s);
         Assert.assertEquals("HMMM", acs.b[1].s);
     }
+
+    @Test
+    public void testStoreByDeltaUnsetPrecision() {
+        try {
+            EfficientStorage.serialize(new ArrSBD(new StoreByDelta[]{new StoreByDelta("a", 1)}));
+            Assert.assertTrue(false);
+        } catch (EfficientException e) {
+            Assert.assertEquals("Decimal precision not set for field d in class " + StoreByDelta.class.getName(), e.getMessage());
+        }
+    }
+
+    @Test
+    public void testStoreByDelta() throws EfficientException {
+        String[] strs = {
+                "hello",
+                "goodbye",
+                "hmmmm",
+                "what"
+        };
+        double[] dubs = {
+                7.123,
+                7.125,
+                7.124,
+                7.12
+        };
+        StoreByDelta[] arr = new StoreByDelta[strs.length];
+        for (int i = 0; i < strs.length; i++) {
+            arr[i] = new StoreByDelta(strs[i], dubs[i]);
+        }
+        EfficientStorage.setPrecision(arr, "d", 3);
+        byte[] data = EfficientStorage.serialize(new ArrSBD(arr));
+        ArrSBD a = (ArrSBD) EfficientStorage.deserialize(ArrSBD.class, data);
+        for (int i = 0; i < arr.length; i++) {
+            Assert.assertEquals(arr[i].s, a.arr[i].s);
+            Assert.assertEquals(arr[i].d, a.arr[i].d, 10e-5);
+        }
+    }
 }
