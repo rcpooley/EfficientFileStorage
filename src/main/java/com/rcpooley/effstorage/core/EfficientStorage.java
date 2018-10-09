@@ -53,7 +53,9 @@ public class EfficientStorage {
         if (!map.containsKey(componentField)) {
             throw new EfficientException("Decimal precision not set for field " + componentField + " in class " + array.getClass().getComponentType().getName());
         }
-        return map.get(componentField);
+        int val = map.remove(componentField);
+        if (map.size() == 0) precisionMap.remove(array);
+        return val;
     }
 
     public static void setPrecision(Object array, String componentField, int numDecimals) {

@@ -6,6 +6,9 @@ import com.rcpooley.effstorage.test.structs.*;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.lang.reflect.Field;
+import java.util.Map;
+
 public class TestEfficientStorage {
 
     @Test
@@ -161,7 +164,7 @@ public class TestEfficientStorage {
     }
 
     @Test
-    public void testStoreByDelta() throws EfficientException {
+    public void testStoreByDelta() throws EfficientException, NoSuchFieldException, IllegalAccessException {
         String[] strs = {
                 "hello",
                 "goodbye",
@@ -185,5 +188,12 @@ public class TestEfficientStorage {
             Assert.assertEquals(arr[i].s, a.arr[i].s);
             Assert.assertEquals(arr[i].d, a.arr[i].d, 10e-5);
         }
+
+        // Make sure memory is cleaned up
+        Field f = EfficientStorage.class.getDeclaredField("precisionMap");
+        f.setAccessible(true);
+        Map<Object, Map<String, Integer>> map = (Map<Object, Map<String, Integer>>) f.get(null);
+        f.setAccessible(false);
+        Assert.assertEquals(0, map.size());
     }
 }
