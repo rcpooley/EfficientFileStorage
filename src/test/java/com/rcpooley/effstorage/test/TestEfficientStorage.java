@@ -196,4 +196,44 @@ public class TestEfficientStorage {
         f.setAccessible(false);
         Assert.assertEquals(0, map.size());
     }
+
+    @Test
+    public void testStoreByDeltaTypes() throws EfficientException {
+        int[] vals = {0x7FFFFFFF, 0x7FFFFFEE, 0x7FFFFFEF, 0x7FFFFFDC, 0x7FFFFFBB, 0x7FFFFF00};
+        long s = 0x7FFFFFFFFFFFFF00L;
+        long[] longVals = {s, s + 0x10, s + 0x18, s + 0x20, s + 0x30, s + 0x90};
+
+        StoreByDeltaTypes[] arr = new StoreByDeltaTypes[vals.length];
+        for (int i = 0; i < arr.length; i++) {
+            arr[i] = new StoreByDeltaTypes(vals[i], longVals[i]);
+        }
+
+        byte[] data = EfficientStorage.serialize(new ArrSBDT(arr));
+
+        ArrSBDT arrSBDT = (ArrSBDT) EfficientStorage.deserialize(ArrSBDT.class, data);
+        for (int i = 0; i < vals.length; i++) {
+            Assert.assertEquals(vals[i], arrSBDT.sbdt[i].a);
+            Assert.assertEquals(longVals[i], arrSBDT.sbdt[i].b);
+        }
+    }
+
+    @Test
+    public void testStoreByDeltaLargeOffsets() throws EfficientException {
+        int[] vals = {0, 0x7FFFFFEE, 1, 0x7FFFFFDC, 2, 0x7FFFFF00};
+        long s = 0x7FFFFFFFFFFFFF00L;
+        long[] longVals = {s, 5, s + 0x18, 10, s + 0x30, s + 0x90};
+
+        StoreByDeltaTypes[] arr = new StoreByDeltaTypes[vals.length];
+        for (int i = 0; i < arr.length; i++) {
+            arr[i] = new StoreByDeltaTypes(vals[i], longVals[i]);
+        }
+
+        byte[] data = EfficientStorage.serialize(new ArrSBDT(arr));
+
+        ArrSBDT arrSBDT = (ArrSBDT) EfficientStorage.deserialize(ArrSBDT.class, data);
+        for (int i = 0; i < vals.length; i++) {
+            Assert.assertEquals(vals[i], arrSBDT.sbdt[i].a);
+            Assert.assertEquals(longVals[i], arrSBDT.sbdt[i].b);
+        }
+    }
 }

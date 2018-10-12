@@ -10,6 +10,7 @@ public class EfficientStorage {
     private static class FieldData {
         Field field;
         Efficient efficient;
+
         FieldData(Field field, Efficient efficient) {
             this.field = field;
             this.efficient = efficient;
@@ -21,12 +22,14 @@ public class EfficientStorage {
         Class<?> primClass;
         String funcName;
         Class<?> funcParam;
+
         TypeData(Class<?> objClass, Class<?> primClass, String funcName, Class<?> funcParam) {
             this.objClass = objClass;
             this.primClass = primClass;
             this.funcName = funcName;
             this.funcParam = funcParam;
         }
+
         TypeData(Class<?> objClass, Class<?> primClass, String funcName) {
             this.objClass = objClass;
             this.primClass = primClass;
@@ -135,46 +138,63 @@ public class EfficientStorage {
             BitWriter bw = new BitWriter(dos);
             for (FieldData data : deltaFields) {
                 Class<?> dataType = data.field.getType();
-                if (dataType != Double.TYPE && dataType != Double.class) {
-                    throw new EfficientException("Field " + data.field.getName() + " in class " + type.getName() + " is marked as storeByDelta, but is not of type double");
-                }
 
-                int precision = getPrecision(obj, data.field.getName());
+                long[] vals = new long[len];
+                boolean isInt = dataType == Integer.TYPE || dataType == Integer.class;
 
-                // Write number of decimal places
-                bw.writeBits(precision, 8);
+                if (dataType == Double.TYPE || dataType == Double.class) {
+                    int precision = getPrecision(obj, data.field.getName());
 
-                int[] vals = new int[len];
-                for (int i = 0; i < len; i++) {
-                    double d = (double) data.field.get(Array.get(obj, i));
-                    vals[i] = (int) (d * Math.pow(10, precision));
+                    // Write number of decimal places
+                    bw.writeBits(precision, 8);
+
+                    for (int i = 0; i < len; i++) {
+                        double d = (double) data.field.get(Array.get(obj, i));
+                        vals[i] = (int) (d * Math.pow(10, precision));
+                    }
+                } else if (isInt) {
+                    for (int i = 0; i < len; i++) {
+                        vals[i] = (int) data.field.get(Array.get(obj, i));
+                    }
+                }  else if (dataType == Long.TYPE || dataType == Long.class) {
+                    for (int i = 0; i < len; i++) {
+                        vals[i] = (long) data.field.get(Array.get(obj, i));
+                    }
+                } else {
+                    throw new EfficientException("Field " + data.field.getName() + " in class " + type.getName() + " is marked as storeByDelta, but is not of type double, long, or int");
                 }
 
                 int offsetBits = 1;
-                int maxOffset = (int) Math.pow(2, offsetBits) / 2;
-                int[] offsets = new int[vals.length - 1];
+                long maxOffset = 1 << (offsetBits - 1);
+                long[] offsets = new long[vals.length - 1];
                 for (int i = 0; i < len - 1; i++) {
                     offsets[i] = vals[i + 1] - vals[i];
-                    while (offsets[i] >= maxOffset || offsets[i] < -maxOffset) {
+                    while (offsetBits < 64 && (offsets[i] >= maxOffset || offsets[i] < -maxOffset)) {
                         offsetBits++;
-                        maxOffset = (int) Math.pow(2, offsetBits) / 2;
+                        maxOffset = 1L << (offsetBits - 1);
                     }
                 }
 
                 // Write number of offset bits
                 bw.writeBits(offsetBits, 8);
 
-                // Write the first value
-                bw.writeBits(vals[0], 32);
+                if (offsetBits == 64) {
+                    for (long val : vals) {
+                        bw.writeBits(val, 64);
+                    }
+                } else {
+                    // Write the first value
+                    bw.writeBits(vals[0], isInt ? 32 : 64);
 
-                // Write the offsets
-                for (int o : offsets) {
-                    if (o < 0) {
-                        bw.writeBits(1, 1);
-                        bw.writeBits(maxOffset + o, offsetBits - 1);
-                    } else {
-                        bw.writeBits(0, 1);
-                        bw.writeBits(o, offsetBits - 1);
+                    // Write the offsets (or values if offsetBits == 64)
+                    for (long o : offsets) {
+                        if (o < 0) {
+                            bw.writeBits(1, 1);
+                            bw.writeBits(maxOffset + o, offsetBits - 1);
+                        } else {
+                            bw.writeBits(0, 1);
+                            bw.writeBits(o, offsetBits - 1);
+                        }
                     }
                 }
             }
@@ -241,22 +261,54 @@ public class EfficientStorage {
 
             BitReader br = new BitReader(dis);
             for (FieldData data : deltaFields) {
-                int precision = br.readBits(8);
+                Class<?> dataType = data.field.getType();
+
+                boolean isInt = dataType == Integer.TYPE || dataType == Integer.class;
+
+                int precision = 0;
+
+                if (dataType == Double.TYPE || dataType == Double.class) {
+                    precision = br.readBits(8);
+                }
+
                 int offsetBits = br.readBits(8);
-                int maxOffset = (int) Math.pow(2, offsetBits) / 2;
-                int[] vals = new int[len];
-                vals[0] = br.readBits(32);
-                for (int i = 1; i < len; i++) {
-                    boolean negative = br.readBits(1) == 1;
-                    int val = br.readBits(offsetBits - 1);
-                    if (negative) {
-                        val -= maxOffset;
+                long maxOffset = (long) Math.pow(2, offsetBits) / 2;
+
+                // Read values
+                long[] vals = new long[len];
+
+                if (offsetBits == 64) {
+                    for (int i = 0; i < len; i++) {
+                        vals[i] = br.readBitsLong(64);
                     }
-                    vals[i] = vals[i - 1] + val;
+                } else {
+                    // Read first value
+                    vals[0] = br.readBitsLong(isInt ? 32 : 64);
+
+                    // Read each offset
+                    for (int i = 1; i < len; i++) {
+                        boolean negative = br.readBits(1) == 1;
+                        long val = br.readBitsLong(offsetBits - 1);
+                        if (negative) {
+                            val -= maxOffset;
+                        }
+                        vals[i] = vals[i - 1] + val;
+                    }
                 }
 
                 for (int i = 0; i < len; i++) {
-                    data.field.set(Array.get(arr, i), vals[i] * 1.0 / Math.pow(10, precision));
+                    Object val;
+                    if (dataType == Double.TYPE || dataType == Double.class) {
+                        val = vals[i] * 1.0 / Math.pow(10, precision);
+                    } else if (isInt) {
+                        val = (int) vals[i];
+                    } else if (dataType == Long.TYPE || dataType == Long.class) {
+                        val = vals[i];
+                    } else {
+                        throw new EfficientException("Field " + data.field.getName() + " in class " + type.getName() + " is marked as storeByDelta, but is not of type double, long, or int");
+                    }
+
+                    data.field.set(Array.get(arr, i), val);
                 }
             }
 
@@ -279,7 +331,7 @@ public class EfficientStorage {
             c.setAccessible(false);
 
             if (EfficientSerializable.class.isAssignableFrom(type)) {
-                ((EfficientSerializable)obj).deserialize(dis);
+                ((EfficientSerializable) obj).deserialize(dis);
             } else {
                 // Get all fields annotated with @Efficient
                 List<FieldData> fields = getEfficientFields(type)

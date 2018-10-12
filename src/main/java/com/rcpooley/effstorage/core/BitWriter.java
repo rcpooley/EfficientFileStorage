@@ -15,11 +15,11 @@ public class BitWriter {
         this.os = os;
     }
 
-    public void writeBits(int data, int numBits) throws IOException {
+    public void writeBits(long data, int numBits) throws IOException {
         int todo = numBits;
         while (todo > 0) {
             int toRead = Math.min(8 - curBits, todo);
-            int b = (data >> (todo - toRead)) & BitUtil.getMask(toRead);
+            int b = (int) (data >> (todo - toRead)) & BitUtil.getMask(toRead);
             curByte = (curByte << toRead) | b;
             todo -= toRead;
             curBits += toRead;

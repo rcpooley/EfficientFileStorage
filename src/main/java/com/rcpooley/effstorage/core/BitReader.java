@@ -15,8 +15,12 @@ public class BitReader {
         this.is = is;
     }
 
-    public int readBits(int numBits) throws IOException {
-        int b = 0;
+    public long readBitsLong(int numBits) throws IOException {
+        if (numBits > 64 || numBits < 0) {
+            throw new RuntimeException("Cannot read " + numBits + " bits");
+        }
+
+        long b = 0;
         int todo = numBits;
         while (todo > 0) {
             if (availableBits == 0) {
@@ -31,5 +35,12 @@ public class BitReader {
             availableBits -= toRead;
         }
         return b;
+    }
+
+    public int readBits(int numBits) throws IOException {
+        if (numBits > 32 || numBits < 0) {
+            throw new RuntimeException("Cannot read " + numBits + " bits");
+        }
+        return (int) readBitsLong(numBits);
     }
 }

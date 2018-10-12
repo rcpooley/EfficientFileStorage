@@ -43,4 +43,22 @@ public class TestBitIO {
         Assert.assertEquals(999, reader.readBits(10));
         Assert.assertEquals(22, reader.readBits(6));
     }
+
+    @Test
+    public void testLongs() throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        BitWriter writer = new BitWriter(baos);
+        writer.writeBits(0xABCDEFEDCBA98765L, 64);
+        writer.writeBits(0xAAAAAABBCCDDEEFFL, 5 * 8);
+        writer.writeBits(999, 10);
+        writer.writeBits(0x1234, 8);
+        writer.finish();
+        byte[] data = baos.toByteArray();
+        BitReader reader = new BitReader(new ByteArrayInputStream(data));
+        Assert.assertEquals(0xABCDEFED, reader.readBits(32));
+        Assert.assertEquals(0xCBA98765BBCCDDEEL, reader.readBitsLong(64));
+        Assert.assertEquals(0xFF, reader.readBitsLong(8));
+        Assert.assertEquals(999, reader.readBits(10));
+        Assert.assertEquals(0x34, reader.readBits(8));
+    }
 }
