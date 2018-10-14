@@ -1,4 +1,4 @@
-package com.rcpooley.effstorage.core;
+package com.rcpooley.effstorage.bitio;
 
 import java.io.IOException;
 import java.io.InputStream;

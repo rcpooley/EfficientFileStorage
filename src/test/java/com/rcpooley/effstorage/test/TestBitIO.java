@@ -1,8 +1,8 @@
 package com.rcpooley.effstorage.test;
 
-import com.rcpooley.effstorage.core.BitReader;
-import com.rcpooley.effstorage.core.BitUtil;
-import com.rcpooley.effstorage.core.BitWriter;
+import com.rcpooley.effstorage.bitio.BitReader;
+import com.rcpooley.effstorage.bitio.BitUtil;
+import com.rcpooley.effstorage.bitio.BitWriter;
 import org.junit.Assert;
 import org.junit.Test;
 

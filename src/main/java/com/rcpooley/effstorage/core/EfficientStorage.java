@@ -1,5 +1,8 @@
 package com.rcpooley.effstorage.core;
 
+import com.rcpooley.effstorage.bitio.BitReader;
+import com.rcpooley.effstorage.bitio.BitWriter;
+
 import java.io.*;
 import java.lang.reflect.*;
 import java.util.*;
@@ -38,33 +41,117 @@ public class EfficientStorage {
         }
     }
 
-    private static TypeData[] types = new TypeData[]{
-            new TypeData(Integer.class, Integer.TYPE, "Int"),
-            new TypeData(Byte.class, Byte.TYPE, "Byte", Integer.TYPE),
-            new TypeData(Short.class, Short.TYPE, "Short", Integer.TYPE),
-            new TypeData(Long.class, Long.TYPE, "Long"),
-            new TypeData(Character.class, Character.TYPE, "Char", Integer.TYPE),
-            new TypeData(Float.class, Float.TYPE, "Float"),
-            new TypeData(Double.class, Double.TYPE, "Double"),
-            new TypeData(Boolean.class, Boolean.TYPE, "Boolean")
-    };
+    private static Map<Class, EfficientSerializer> serializers = new HashMap<>();
 
-    private static Map<Object, Map<String, Integer>> precisionMap = new HashMap<>();
+    private static Map<Class, EfficientDeltaValue> deltaValues = new HashMap<>();
 
-    private static int getPrecision(Object array, String componentField) throws EfficientException {
-        Map<String, Integer> map = precisionMap.getOrDefault(array, new HashMap<>());
-        if (!map.containsKey(componentField)) {
-            throw new EfficientException("Decimal precision not set for field " + componentField + " in class " + array.getClass().getComponentType().getName());
+    static {
+        TypeData[] types = {
+                new TypeData(Integer.class, Integer.TYPE, "Int"),
+                new TypeData(Byte.class, Byte.TYPE, "Byte", Integer.TYPE),
+                new TypeData(Short.class, Short.TYPE, "Short", Integer.TYPE),
+                new TypeData(Long.class, Long.TYPE, "Long"),
+                new TypeData(Character.class, Character.TYPE, "Char", Integer.TYPE),
+                new TypeData(Float.class, Float.TYPE, "Float"),
+                new TypeData(Double.class, Double.TYPE, "Double"),
+                new TypeData(Boolean.class, Boolean.TYPE, "Boolean")
+        };
+
+        // Handle primitive data types
+        for (TypeData check : types) {
+            EfficientSerializer es = new EfficientSerializer() {
+                @Override
+                public void serialize(Object obj, DataOutputStream dos) {
+                    try {
+                        Method m = dos.getClass().getMethod("write" + check.funcName, check.funcParam);
+                        m.invoke(dos, obj);
+                    } catch (IllegalAccessException | NoSuchMethodException | InvocationTargetException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                @Override
+                public Object deserialize(DataInputStream dis) {
+                    try {
+                        Method m = dis.getClass().getMethod("read" + check.funcName);
+                        return m.invoke(dis);
+                    } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+                        e.printStackTrace();
+                        return null;
+                    }
+                }
+            };
+
+            serializers.put(check.objClass, es);
+            serializers.put(check.primClass, es);
         }
-        int val = map.remove(componentField);
-        if (map.size() == 0) precisionMap.remove(array);
-        return val;
-    }
 
-    public static void setPrecision(Object array, String componentField, int numDecimals) {
-        Map<String, Integer> map = precisionMap.getOrDefault(array, new HashMap<>());
-        map.put(componentField, numDecimals);
-        precisionMap.put(array, map);
+        // Handle strings
+        serializers.put(String.class, new EfficientSerializer<String>() {
+            @Override
+            public void serialize(String obj, DataOutputStream dos) throws IOException {
+                dos.writeInt(obj.length());
+                dos.write(obj.getBytes());
+            }
+
+            @Override
+            public String deserialize(DataInputStream dis) throws IOException {
+                int len = dis.readInt();
+                byte[] bytes = new byte[len];
+                int r = dis.read(bytes);
+                if (r != len) {
+                    throw new RuntimeException("Failed to read " + len + " bytes for string");
+                }
+                return new String(bytes);
+            }
+        });
+
+        // Set delta values
+        EfficientDeltaValue edv = new EfficientDeltaValue<Integer>() {
+            @Override
+            public int getNumInitialBits() {
+                return 32;
+            }
+
+            @Override
+            public long[] getValues(Integer[] values) {
+                long[] vals = new long[values.length];
+                for (int i = 0; i < vals.length; i++) vals[i] = values[i];
+                return vals;
+            }
+
+            @Override
+            public Integer[] convertValues(long[] values) {
+                Integer[] vals = new Integer[values.length];
+                for (int i = 0; i < vals.length; i++) vals[i] = (int) values[i];
+                return vals;
+            }
+        };
+        deltaValues.put(Integer.class, edv);
+        deltaValues.put(Integer.TYPE, edv);
+
+        edv = new EfficientDeltaValue<Long>() {
+            @Override
+            public int getNumInitialBits() {
+                return 64;
+            }
+
+            @Override
+            public long[] getValues(Long[] values) {
+                long[] vals = new long[values.length];
+                for (int i = 0; i < vals.length; i++) vals[i] = values[i];
+                return vals;
+            }
+
+            @Override
+            public Long[] convertValues(long[] values) {
+                Long[] vals = new Long[values.length];
+                for (int i = 0; i < vals.length; i++) vals[i] = values[i];
+                return vals;
+            }
+        };
+        deltaValues.put(Long.class, edv);
+        deltaValues.put(Long.TYPE, edv);
     }
 
     public static byte[] serialize(Object object) throws EfficientException {
@@ -75,7 +162,7 @@ public class EfficientStorage {
         // Serialize the object
         try {
             serialize(object, dos);
-        } catch (IOException | IllegalAccessException | NoSuchMethodException | InvocationTargetException e) {
+        } catch (IOException | IllegalAccessException e) {
             throw new EfficientException(e);
         }
 
@@ -89,35 +176,24 @@ public class EfficientStorage {
 
         try {
             return deserialize(clazz, dis);
-        } catch (IOException | IllegalAccessException | InstantiationException | InvocationTargetException | NoSuchMethodException e) {
+        } catch (IOException | IllegalAccessException | InstantiationException | InvocationTargetException e) {
             throw new EfficientException(e);
         }
     }
 
-    private static void serialize(Object obj, DataOutputStream dos) throws IOException, IllegalAccessException, EfficientException, NoSuchMethodException, InvocationTargetException {
+    private static void serialize(Object obj, DataOutputStream dos) throws IOException, IllegalAccessException, EfficientException {
         Class<?> type = obj.getClass();
 
-        // Handle primitive data types
-        for (TypeData check : types) {
-            if (type == check.objClass) {
-                Method m = dos.getClass().getMethod("write" + check.funcName, check.funcParam);
-                m.invoke(dos, obj);
-                return;
-            }
-        }
-
-        // Handle Strings
-        if (type == String.class) {
-            String s = (String) obj;
-            dos.writeInt(s.length());
-            dos.write(s.getBytes());
+        // Handle serializers
+        if (serializers.containsKey(type)) {
+            serializers.get(type).serialize(obj, dos);
             return;
         }
 
         // Handle EfficientSerializable interfaces
         if (obj instanceof EfficientSerializable) {
             EfficientSerializable es = (EfficientSerializable) obj;
-            dos.write(es.serialize());
+            es.serialize(dos);
             return;
         }
 
@@ -143,10 +219,6 @@ public class EfficientStorage {
                 boolean isInt = dataType == Integer.TYPE || dataType == Integer.class;
 
                 if (dataType == Double.TYPE || dataType == Double.class) {
-                    int precision = getPrecision(obj, data.field.getName());
-
-                    // Write number of decimal places
-                    bw.writeBits(precision, 8);
 
                     for (int i = 0; i < len; i++) {
                         double d = (double) data.field.get(Array.get(obj, i));
@@ -186,7 +258,7 @@ public class EfficientStorage {
                     // Write the first value
                     bw.writeBits(vals[0], isInt ? 32 : 64);
 
-                    // Write the offsets (or values if offsetBits == 64)
+                    // Write the offsets
                     for (long o : offsets) {
                         if (o < 0) {
                             bw.writeBits(1, 1);
@@ -225,24 +297,10 @@ public class EfficientStorage {
         throw new EfficientException("Unrecognized field type: " + type.getName());
     }
 
-    private static Object deserialize(Class<?> type, DataInputStream dis) throws IOException, EfficientException, IllegalAccessException, InvocationTargetException, InstantiationException, NoSuchMethodException {
-        // Handle primitive data types
-        for (TypeData check : types) {
-            if (type == check.primClass) {
-                Method m = dis.getClass().getMethod("read" + check.funcName);
-                return m.invoke(dis);
-            }
-        }
-
-        // Handle Strings
-        if (type == String.class) {
-            int len = dis.readInt();
-            byte[] bytes = new byte[len];
-            int r = dis.read(bytes);
-            if (r != len) {
-                throw new RuntimeException("Failed to read " + len + " bytes for string");
-            }
-            return new String(bytes);
+    private static Object deserialize(Class<?> type, DataInputStream dis) throws IOException, EfficientException, IllegalAccessException, InvocationTargetException, InstantiationException {
+        // Handle serializers
+        if (serializers.containsKey(type)) {
+            return serializers.get(type).deserialize(dis);
         }
 
         // Handle arrays

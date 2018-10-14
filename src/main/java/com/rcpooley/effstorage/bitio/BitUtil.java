@@ -1,4 +1,4 @@
-package com.rcpooley.effstorage.core;
+package com.rcpooley.effstorage.bitio;
 
 public class BitUtil {
     public static int getMask(int numBits) {

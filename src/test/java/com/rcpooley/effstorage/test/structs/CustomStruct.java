@@ -17,12 +17,9 @@ public class CustomStruct implements EfficientSerializable {
     }
 
     @Override
-    public byte[] serialize() throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        DataOutputStream dos = new DataOutputStream(baos);
+    public void serialize(DataOutputStream dos) throws IOException {
         dos.writeInt(s.length());
         dos.write(s.getBytes());
-        return baos.toByteArray();
     }
 
     @Override
