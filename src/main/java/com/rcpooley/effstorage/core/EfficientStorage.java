@@ -165,7 +165,7 @@ public class EfficientStorage {
             }
 
             @Override
-            public Values getValues(Object[] vls) throws IOException {
+            public Values getValues(Object[] vls) {
                 BigDecimal[] values = new BigDecimal[vls.length];
                 for (int i = 0; i < vls.length; i++) {
                     values[i] = (BigDecimal) vls[i];
@@ -185,7 +185,7 @@ public class EfficientStorage {
             }
 
             @Override
-            public Object[] convertValues(Values v) throws IOException {
+            public Object[] convertValues(Values v) {
                 Object[] vals = new BigDecimal[v.values.length];
 
                 int scale = v.scale;
@@ -297,6 +297,7 @@ public class EfficientStorage {
 
             BitWriter bw = new BitWriter(dos);
             for (FieldData data : deltaFields) {
+                data.field.setAccessible(true);
                 Class<?> dataType = data.field.getType();
 
                 EfficientDeltaValue edv = deltaValues.get(dataType);
@@ -351,6 +352,8 @@ public class EfficientStorage {
 
                 // Write the scale
                 if (edv.useScale()) bw.writeBits(v.scale, 32);
+
+                data.field.setAccessible(false);
             }
             bw.finish();
 
@@ -401,6 +404,8 @@ public class EfficientStorage {
 
             BitReader br = new BitReader(dis);
             for (FieldData data : deltaFields) {
+                data.field.setAccessible(true);
+
                 Class<?> dataType = data.field.getType();
 
                 EfficientDeltaValue edv = deltaValues.get(dataType);
@@ -439,6 +444,8 @@ public class EfficientStorage {
                 for (int i = 0; i < len; i++) {
                     data.field.set(Array.get(arr, i), rawValues[i]);
                 }
+
+                data.field.setAccessible(false);
             }
 
             return arr;
