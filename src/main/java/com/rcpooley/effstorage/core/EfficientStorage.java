@@ -3,8 +3,12 @@ package com.rcpooley.effstorage.core;
 import com.rcpooley.effstorage.bitio.BitReader;
 import com.rcpooley.effstorage.bitio.BitWriter;
 
+import static com.rcpooley.effstorage.core.EfficientDeltaValue.Values;
+
 import java.io.*;
 import java.lang.reflect.*;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -107,51 +111,131 @@ public class EfficientStorage {
         });
 
         // Set delta values
-        EfficientDeltaValue edv = new EfficientDeltaValue<Integer>() {
+
+        EfficientDeltaValue edv = new EfficientDeltaValue() {
             @Override
             public int getNumInitialBits() {
                 return 32;
             }
 
             @Override
-            public long[] getValues(Integer[] values) {
+            public Values getValues(Object[] values) {
                 long[] vals = new long[values.length];
-                for (int i = 0; i < vals.length; i++) vals[i] = values[i];
-                return vals;
+                for (int i = 0; i < vals.length; i++) vals[i] = (int) values[i];
+                return new Values(vals);
             }
 
             @Override
-            public Integer[] convertValues(long[] values) {
-                Integer[] vals = new Integer[values.length];
-                for (int i = 0; i < vals.length; i++) vals[i] = (int) values[i];
+            public Object[] convertValues(Values v) {
+                Object[] vals = new Integer[v.values.length];
+                for (int i = 0; i < vals.length; i++) vals[i] = (int) v.values[i];
                 return vals;
             }
         };
         deltaValues.put(Integer.class, edv);
         deltaValues.put(Integer.TYPE, edv);
 
-        edv = new EfficientDeltaValue<Long>() {
+        edv = new EfficientDeltaValue() {
             @Override
             public int getNumInitialBits() {
                 return 64;
             }
 
             @Override
-            public long[] getValues(Long[] values) {
+            public Values getValues(Object[] values) {
                 long[] vals = new long[values.length];
-                for (int i = 0; i < vals.length; i++) vals[i] = values[i];
-                return vals;
+                for (int i = 0; i < vals.length; i++) vals[i] = (long) values[i];
+                return new Values(vals);
             }
 
             @Override
-            public Long[] convertValues(long[] values) {
-                Long[] vals = new Long[values.length];
-                for (int i = 0; i < vals.length; i++) vals[i] = values[i];
+            public Object[] convertValues(Values v) {
+                Object[] vals = new Long[v.values.length];
+                for (int i = 0; i < vals.length; i++) vals[i] = v.values[i];
                 return vals;
             }
         };
         deltaValues.put(Long.class, edv);
         deltaValues.put(Long.TYPE, edv);
+
+        EfficientDeltaValue bigDecimalEdv = new EfficientDeltaValue() {
+            @Override
+            public int getNumInitialBits() {
+                return 64;
+            }
+
+            @Override
+            public Values getValues(Object[] vls) throws IOException {
+                BigDecimal[] values = new BigDecimal[vls.length];
+                for (int i = 0; i < vls.length; i++) {
+                    values[i] = (BigDecimal) vls[i];
+                }
+
+                int maxScale = 0;
+                for (BigDecimal bd : values) {
+                    if (bd.scale() > maxScale) maxScale = bd.scale();
+                }
+
+                long[] vals = new long[values.length];
+                for (int i = 0; i < values.length; i++) {
+                    vals[i] = values[i].setScale(maxScale, RoundingMode.UNNECESSARY).unscaledValue().longValue();
+                }
+
+                return new Values(vals, maxScale);
+            }
+
+            @Override
+            public Object[] convertValues(Values v) throws IOException {
+                Object[] vals = new BigDecimal[v.values.length];
+
+                int scale = v.scale;
+
+                for (int i = 0; i < v.values.length; i++) {
+                    vals[i] = BigDecimal.valueOf(v.values[i], scale);
+                }
+
+                return vals;
+            }
+
+            @Override
+            public boolean useScale() {
+                return true;
+            }
+        };
+        deltaValues.put(BigDecimal.class, bigDecimalEdv);
+
+        edv = new EfficientDeltaValue() {
+            @Override
+            public int getNumInitialBits() {
+                return 64;
+            }
+
+            @Override
+            public Values getValues(Object[] values) throws IOException {
+                BigDecimal[] vals = new BigDecimal[values.length];
+                for (int i = 0; i < values.length; i++) {
+                    vals[i] = BigDecimal.valueOf((double)values[i]);
+                }
+                return bigDecimalEdv.getValues(vals);
+            }
+
+            @Override
+            public Object[] convertValues(Values v) throws IOException {
+                Object[] bd = bigDecimalEdv.convertValues(v);
+                Object[] vals = new Double[v.values.length];
+                for (int i = 0; i < vals.length; i++) {
+                    vals[i] = ((BigDecimal)bd[i]).doubleValue();
+                }
+                return vals;
+            }
+
+            @Override
+            public boolean useScale() {
+                return true;
+            }
+        };
+        deltaValues.put(Double.class, edv);
+        deltaValues.put(Double.TYPE, edv);
     }
 
     public static byte[] serialize(Object object) throws EfficientException {
@@ -215,27 +299,22 @@ public class EfficientStorage {
             for (FieldData data : deltaFields) {
                 Class<?> dataType = data.field.getType();
 
-                long[] vals = new long[len];
-                boolean isInt = dataType == Integer.TYPE || dataType == Integer.class;
-
-                if (dataType == Double.TYPE || dataType == Double.class) {
-
-                    for (int i = 0; i < len; i++) {
-                        double d = (double) data.field.get(Array.get(obj, i));
-                        vals[i] = (int) (d * Math.pow(10, precision));
-                    }
-                } else if (isInt) {
-                    for (int i = 0; i < len; i++) {
-                        vals[i] = (int) data.field.get(Array.get(obj, i));
-                    }
-                }  else if (dataType == Long.TYPE || dataType == Long.class) {
-                    for (int i = 0; i < len; i++) {
-                        vals[i] = (long) data.field.get(Array.get(obj, i));
-                    }
-                } else {
-                    throw new EfficientException("Field " + data.field.getName() + " in class " + type.getName() + " is marked as storeByDelta, but is not of type double, long, or int");
+                EfficientDeltaValue edv = deltaValues.get(dataType);
+                if (edv == null) {
+                    throw new EfficientException("Field " + data.field.getName() + " in class " + type.getName() + " is marked as storeByDelta, but is not a recognized delta type");
                 }
 
+                // Get array of the raw values of this delta field
+                Object[] rawVals = new Object[len];
+                for (int i = 0; i < len; i++) {
+                    rawVals[i] = data.field.get(Array.get(obj, i));
+                }
+
+                // Get the unscaled values
+                Values v = edv.getValues(rawVals);
+                long[] vals = v.values;
+
+                // Calculate the offsets
                 int offsetBits = 1;
                 long maxOffset = 1 << (offsetBits - 1);
                 long[] offsets = new long[vals.length - 1];
@@ -256,7 +335,7 @@ public class EfficientStorage {
                     }
                 } else {
                     // Write the first value
-                    bw.writeBits(vals[0], isInt ? 32 : 64);
+                    bw.writeBits(vals[0], edv.getNumInitialBits());
 
                     // Write the offsets
                     for (long o : offsets) {
@@ -269,6 +348,9 @@ public class EfficientStorage {
                         }
                     }
                 }
+
+                // Write the scale
+                if (edv.useScale()) bw.writeBits(v.scale, 32);
             }
             bw.finish();
 
@@ -321,12 +403,9 @@ public class EfficientStorage {
             for (FieldData data : deltaFields) {
                 Class<?> dataType = data.field.getType();
 
-                boolean isInt = dataType == Integer.TYPE || dataType == Integer.class;
-
-                int precision = 0;
-
-                if (dataType == Double.TYPE || dataType == Double.class) {
-                    precision = br.readBits(8);
+                EfficientDeltaValue edv = deltaValues.get(dataType);
+                if (edv == null) {
+                    throw new EfficientException("Field " + data.field.getName() + " in class " + type.getName() + " is marked as storeByDelta, but is not a recognized delta type");
                 }
 
                 int offsetBits = br.readBits(8);
@@ -341,7 +420,7 @@ public class EfficientStorage {
                     }
                 } else {
                     // Read first value
-                    vals[0] = br.readBitsLong(isInt ? 32 : 64);
+                    vals[0] = br.readBitsLong(edv.getNumInitialBits());
 
                     // Read each offset
                     for (int i = 1; i < len; i++) {
@@ -354,19 +433,11 @@ public class EfficientStorage {
                     }
                 }
 
-                for (int i = 0; i < len; i++) {
-                    Object val;
-                    if (dataType == Double.TYPE || dataType == Double.class) {
-                        val = vals[i] * 1.0 / Math.pow(10, precision);
-                    } else if (isInt) {
-                        val = (int) vals[i];
-                    } else if (dataType == Long.TYPE || dataType == Long.class) {
-                        val = vals[i];
-                    } else {
-                        throw new EfficientException("Field " + data.field.getName() + " in class " + type.getName() + " is marked as storeByDelta, but is not of type double, long, or int");
-                    }
+                int scale = edv.useScale() ? br.readBits(32) : 0;
 
-                    data.field.set(Array.get(arr, i), val);
+                Object[] rawValues = edv.convertValues(new Values(vals, scale));
+                for (int i = 0; i < len; i++) {
+                    data.field.set(Array.get(arr, i), rawValues[i]);
                 }
             }
 

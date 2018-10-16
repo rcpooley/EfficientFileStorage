@@ -7,6 +7,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.lang.reflect.Field;
+import java.math.BigDecimal;
 import java.util.Map;
 
 public class TestEfficientStorage {
@@ -154,16 +155,6 @@ public class TestEfficientStorage {
     }
 
     @Test
-    public void testStoreByDeltaUnsetPrecision() {
-        try {
-            EfficientStorage.serialize(new ArrSBD(new StoreByDelta[]{new StoreByDelta("a", 1)}));
-            Assert.assertTrue(false);
-        } catch (EfficientException e) {
-            Assert.assertEquals("Decimal precision not set for field d in class " + StoreByDelta.class.getName(), e.getMessage());
-        }
-    }
-
-    @Test
     public void testStoreByDelta() throws EfficientException, NoSuchFieldException, IllegalAccessException {
         String[] strs = {
                 "hello",
@@ -181,20 +172,12 @@ public class TestEfficientStorage {
         for (int i = 0; i < strs.length; i++) {
             arr[i] = new StoreByDelta(strs[i], dubs[i]);
         }
-        EfficientStorage.setPrecision(arr, "d", 3);
         byte[] data = EfficientStorage.serialize(new ArrSBD(arr));
         ArrSBD a = (ArrSBD) EfficientStorage.deserialize(ArrSBD.class, data);
         for (int i = 0; i < arr.length; i++) {
             Assert.assertEquals(arr[i].s, a.arr[i].s);
             Assert.assertEquals(arr[i].d, a.arr[i].d, 10e-5);
         }
-
-        // Make sure memory is cleaned up
-        Field f = EfficientStorage.class.getDeclaredField("precisionMap");
-        f.setAccessible(true);
-        Map<Object, Map<String, Integer>> map = (Map<Object, Map<String, Integer>>) f.get(null);
-        f.setAccessible(false);
-        Assert.assertEquals(0, map.size());
     }
 
     @Test
@@ -202,10 +185,18 @@ public class TestEfficientStorage {
         int[] vals = {0x7FFFFFFF, 0x7FFFFFEE, 0x7FFFFFEF, 0x7FFFFFDC, 0x7FFFFFBB, 0x7FFFFF00};
         long s = 0x7FFFFFFFFFFFFF00L;
         long[] longVals = {s, s + 0x10, s + 0x18, s + 0x20, s + 0x30, s + 0x90};
+        BigDecimal[] decVals = {
+                BigDecimal.valueOf(1.2345),
+                BigDecimal.valueOf(2.234),
+                BigDecimal.valueOf(3),
+                BigDecimal.valueOf(4.9),
+                BigDecimal.valueOf(5.98765),
+                BigDecimal.valueOf(-1.12)
+        };
 
         StoreByDeltaTypes[] arr = new StoreByDeltaTypes[vals.length];
         for (int i = 0; i < arr.length; i++) {
-            arr[i] = new StoreByDeltaTypes(vals[i], longVals[i]);
+            arr[i] = new StoreByDeltaTypes(vals[i], longVals[i], decVals[i]);
         }
 
         byte[] data = EfficientStorage.serialize(new ArrSBDT(arr));
@@ -214,6 +205,7 @@ public class TestEfficientStorage {
         for (int i = 0; i < vals.length; i++) {
             Assert.assertEquals(vals[i], arrSBDT.sbdt[i].a);
             Assert.assertEquals(longVals[i], arrSBDT.sbdt[i].b);
+            Assert.assertEquals(0, decVals[i].compareTo(arrSBDT.sbdt[i].c));
         }
     }
 
@@ -222,10 +214,18 @@ public class TestEfficientStorage {
         int[] vals = {0, 0x7FFFFFEE, 1, 0x7FFFFFDC, 2, 0x7FFFFF00};
         long s = 0x7FFFFFFFFFFFFF00L;
         long[] longVals = {s, 5, s + 0x18, 10, s + 0x30, s + 0x90};
+        BigDecimal[] decVals = {
+                BigDecimal.valueOf(1.2345),
+                BigDecimal.valueOf(Integer.MAX_VALUE),
+                BigDecimal.valueOf(Integer.MIN_VALUE),
+                BigDecimal.valueOf(4.9),
+                BigDecimal.valueOf(5.98765),
+                BigDecimal.valueOf(-1.12)
+        };
 
         StoreByDeltaTypes[] arr = new StoreByDeltaTypes[vals.length];
         for (int i = 0; i < arr.length; i++) {
-            arr[i] = new StoreByDeltaTypes(vals[i], longVals[i]);
+            arr[i] = new StoreByDeltaTypes(vals[i], longVals[i], decVals[i]);
         }
 
         byte[] data = EfficientStorage.serialize(new ArrSBDT(arr));
