@@ -236,4 +236,22 @@ public class TestEfficientStorage {
             Assert.assertEquals(longVals[i], arrSBDT.sbdt[i].b);
         }
     }
+
+    @Test
+    public void testStoreByDeltaEmptyArray() throws EfficientException {
+        byte[] data = EfficientStorage.serialize(new EmptyArray());
+        EmptyArray ea = (EmptyArray) EfficientStorage.deserialize(EmptyArray.class, data);
+        Assert.assertEquals(0, ea.arr.length);
+        Assert.assertEquals(0, ea.delta.length);
+    }
+
+    @Test
+    public void testNull() {
+        try {
+            EfficientStorage.serialize(null);
+            Assert.assertTrue(false);
+        } catch (EfficientException e) {
+            Assert.assertEquals("Tried to serialize null object", e.getMessage());
+        }
+    }
 }

@@ -266,6 +266,10 @@ public class EfficientStorage {
     }
 
     private static void serialize(Object obj, DataOutputStream dos) throws IOException, IllegalAccessException, EfficientException {
+        if (obj == null) {
+            throw new EfficientException("Tried to serialize null object");
+        }
+
         Class<?> type = obj.getClass();
 
         // Handle serializers
@@ -285,6 +289,9 @@ public class EfficientStorage {
         if (type.isArray()) {
             int len = Array.getLength(obj);
             dos.writeInt(len);
+
+            if (len == 0) return;
+
             for (int i = 0; i < len; i++) {
                 serialize(Array.get(obj, i), dos);
             }
@@ -392,6 +399,9 @@ public class EfficientStorage {
         if (type.isArray()) {
             int len = dis.readInt();
             Object arr = Array.newInstance(type.getComponentType(), len);
+
+            if (len == 0) return arr;
+
             for (int i = 0; i < len; i++) {
                 Array.set(arr, i, deserialize(type.getComponentType(), dis));
             }
